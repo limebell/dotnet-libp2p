@@ -29,8 +29,8 @@ if (args.Length > 0 && args[0] == "-d")
     Multiaddress remoteAddr = args[1];
 
     string addrTemplate = remoteAddr.Has<QUICv1>() ?
-       "/ip4/0.0.0.0/udp/0/quic-v1" :
-       "/ip4/0.0.0.0/tcp/0";
+       "/ip4/127.0.0.1/udp/0/quic-v1" :
+       "/ip4/127.0.0.1/tcp/0";
 
     ILocalPeer localPeer = peerFactory.Create(localAddr: addrTemplate);
 
@@ -38,6 +38,7 @@ if (args.Length > 0 && args[0] == "-d")
     IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, ts.Token);
 
     await remotePeer.DialAsync<ChatProtocol>(ts.Token);
+    logger.LogInformation("Dialing complete. Disconnect?");
     await remotePeer.DisconnectAsync();
 }
 else
@@ -46,8 +47,8 @@ else
     ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
 
     string addrTemplate = args.Contains("-quic") ?
-        "/ip4/0.0.0.0/udp/{0}/quic-v1" :
-        "/ip4/0.0.0.0/tcp/{0}";
+        "/ip4/127.0.0.1/udp/{0}/quic-v1" :
+        "/ip4/127.0.0.1/tcp/{0}";
 
     IListener listener = await peer.ListenAsync(
         string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0"),
