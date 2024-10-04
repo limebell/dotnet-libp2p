@@ -11,7 +11,9 @@ public class GossipMessage(GossipMessage.MessageTypeEnum messageType, byte[] bod
     {
         Hello = 0x00,
         Peers = 0x01,
-        Data =  0x02,
+        Subscribe =  0x03,
+        UnSubscribe =  0x04,
+        Data =  0x99,
     }
 
     public GossipMessage(byte[] bytes) : this((MessageTypeEnum)bytes[0], bytes[1..])

@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Multiformats.Address;
 using PubsubImitateChat;
-using PubsubImitateChat.Message;
 
 ServiceProvider serviceProvider = new ServiceCollection()
     .AddSingleton<IMessageHandler, MessageHandler>()
@@ -28,7 +27,7 @@ _ = gossip.StartAsync(args.Contains("-quic"), args.Length > 0 && args[0] == "-sp
 gossip.OnMessageReceived += (_, pair) =>
 {
     string address = pair.Item1.ToString() ?? "        ";
-    Console.WriteLine("[{0}] {1}", address.Substring(address.Length - 6), pair.Item2.Content);
+    Console.WriteLine("[{0}:{1}] {2}", address.Substring(address.Length - 6), pair.Item2.Topic, pair.Item2.Content);
 };
 
 if (args.Length > 0 && args[0] == "-d")
@@ -39,7 +38,18 @@ if (args.Length > 0 && args[0] == "-d")
 while (true)
 {
     var message = Console.ReadLine();
-    if (message != null) gossip.Publish(message);
+    if (message != null && message.Contains(':'))
+    {
+        var split = message.Split(':');
+        if (split[0] == "subscribe")
+        {
+            gossip.Subscribe(split[1]);
+        }
+        else
+        {
+            gossip.Publish(split[0], split[1]);
+        }
+    }
 }
 
 /*Multiaddress[] addresses = { "/ip4/127.0.0.1/tcp/50354/p2p/12D3KooWGv47rwW57sXkQs2Ew4Rday8byyVmUFkrGd1fCLYPRErG", "/ip4/127.0.0.1/tcp/50352/p2p/12D3KooWBXu3uGPMkjjxViK6autSnFH5QaKJgTwW8CaSxYSD6yYL" };

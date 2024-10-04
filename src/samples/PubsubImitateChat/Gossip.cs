@@ -83,10 +83,15 @@ public class Gossip
         _logger.LogInformation("Connection with peer {Address} disconnected", remoteAddr);
     }
 
-    public void Publish(string message)
+    public void Subscribe(string topic)
+    {
+        _messageHandler.PublishMessage(new SubscribeMessage(topic));
+    }
+
+    public void Publish(string topic, string message)
     {
         _logger.LogTrace("Publish message {Message}", message);
-        _messageHandler.PublishMessage(new DataMessage(message));
+        _messageHandler.PublishMessage(new DataMessage(topic, message));
     }
 
     public void ReceiveMessage(object? sender, (Multiaddress remote, Multiaddress listener, GossipMessage gossipMessage) arg)
