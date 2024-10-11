@@ -21,9 +21,7 @@ namespace Blockchain.Protocols
             IPeerContext context)
         {
             Console.WriteLine($"Connected to remote peer {context.RemotePeer.Address}.");
-            Task broadcastProtocol = ((IRemotePeer)context.RemotePeer).DialAsync<BroadcastProtocol>();
-            Task chatProtocol = ((IRemotePeer)context.RemotePeer).DialAsync<PingPongProtocol>();
-            await Task.WhenAll(broadcastProtocol, chatProtocol);
+            await ((IRemotePeer)context.RemotePeer).DialAsync<PingPongProtocol>();
         }
 
         public async Task ListenAsync(

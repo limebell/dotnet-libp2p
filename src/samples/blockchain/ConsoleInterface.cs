@@ -12,16 +12,13 @@ namespace Blockchain
 
         private Chain _chain;
         private MemPool _memPool;
-        private bool _miner;
 
         public ConsoleInterface(
             Chain chain,
-            MemPool mempool,
-            bool miner)
+            MemPool mempool)
         {
             _chain = chain;
             _memPool = mempool;
-            _miner = miner;
         }
 
         public async Task StartAsync(
@@ -30,56 +27,34 @@ namespace Blockchain
             while (true)
             {
                 Console.Write("> ");
-                var input = await _consoleReader.ReadLineAsync();
+                var input = await _consoleReader.ReadLineAsync(cancellationToken);
                 if (input == "block")
                 {
-                    if (_miner)
-                    {
-                        Block block = _chain.Mine(_memPool.Dump());
-                        Console.WriteLine($"Created block: {block}");
-                        _chain.Append(block);
-                        byte[] bytes = Codec.Encode(block);
-                        MessageToBroadcast?.Invoke(this, bytes);
-                    }
-                    else
-                    {
-                        Console.WriteLine("Cannot create a block with a non-miner node.");
-                    }
+                    Block block = _chain.Mine(_memPool.Dump());
+                    Console.WriteLine($"Created block: {block}");
+                    _chain.Append(block);
+                    byte[] bytes = Codec.Encode(block);
+                    MessageToBroadcast?.Invoke(this, bytes);
                 }
                 else if (input == "tx")
                 {
-                    if (_miner)
-                    {
-                        Console.WriteLine("Cannot create a transaction with a miner node.");
-                    }
-                    else
-                    {
-                        Transaction transaction = new Transaction(Guid.NewGuid().ToString());
-                        Console.WriteLine($"Created transaction: {transaction}");
-                        byte[] bytes = Codec.Encode(transaction);
-                        MessageToBroadcast?.Invoke(this, bytes);
-                    }
+                    Transaction transaction = new Transaction(Guid.NewGuid().ToString());
+                    Console.WriteLine($"Created transaction: {transaction}");
+                    byte[] bytes = Codec.Encode(transaction);
+                    MessageToBroadcast?.Invoke(this, bytes);
                 }
                 else if (input == "sync")
                 {
                     // NOTE: This should normally be initiated with polling with
                     // some way of retrieving a target remote to sync.
-                    if (_miner)
+                    byte[] bytes = { (byte)MessageType.GetBlocks };
+                    if (_toSendMessageTask is { } toTask)
                     {
-                        Console.WriteLine("Cannot sync chain as a miner node.");
-
+                        await toTask(bytes);
                     }
                     else
                     {
-                        byte[] bytes = { (byte)MessageType.GetBlocks };
-                        if (_toSendMessageTask is { } toTask)
-                        {
-                            await toTask(bytes);
-                        }
-                        else
-                        {
-                            throw new NullReferenceException();
-                        }
+                        throw new NullReferenceException();
                     }
                 }
                 else if (input == "exit")
@@ -94,7 +69,7 @@ namespace Blockchain
             }
         }
 
-        public async Task ReceiveBroadcastMessage(byte[] bytes, IPeerContext context)
+        public async Task ReceiveBroadcastMessage(Multiaddress sender, byte[] bytes)
         {
             byte messageType = bytes[0];
             if (messageType == (byte)MessageType.Block)
@@ -115,10 +90,7 @@ namespace Blockchain
             {
                 var transaction = new Transaction(Encoding.UTF8.GetString(bytes.Skip(1).ToArray()));
                 Console.WriteLine($"Received transaction: {transaction}");
-                if (_miner)
-                {
-                    _memPool.Add(transaction);
-                }
+                _memPool.Add(transaction);
             }
             else
             {
@@ -126,7 +98,7 @@ namespace Blockchain
             }
         }
 
-        public async Task RecievePingPongMessage(
+        public async Task ReceivePingPongMessage(
             byte[] bytes,
             Func<byte[], Task> toSendReplyMessageTask,
             CancellationToken cancellationToken = default)

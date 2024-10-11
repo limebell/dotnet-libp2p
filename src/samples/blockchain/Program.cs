@@ -1,9 +1,12 @@
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Stack;
 using Nethermind.Libp2p.Core;
 using Multiformats.Address;
 using Blockchain.Protocols;
+using Nethermind.Libp2p.Protocols;
+using Nethermind.Libp2p.Protocols.Pubsub;
 
 namespace Blockchain
 {
@@ -13,20 +16,7 @@ namespace Blockchain
 
         public static async Task Main(string[] args)
         {
-            bool miner;
-            switch (args[0])
-            {
-                case "-m":
-                    miner = true;
-                    break;
-                case "-c":
-                    miner = false;
-                    break;
-                default:
-                    throw new ArgumentException($"The first argument should be either -m or -c: {args[0]}");
-            }
-
-            var consoleInterface = new ConsoleInterface(new Chain(), new MemPool(), miner);
+            var consoleInterface = new ConsoleInterface(new Chain(), new MemPool());
             ServiceProvider serviceProvider = new ServiceCollection()
                 .AddLibp2p(builder => builder
                     .AddAppLayerProtocol<HandshakeProtocol>(new HandshakeProtocol(consoleInterface))
@@ -41,34 +31,59 @@ namespace Blockchain
                         }))
                 .BuildServiceProvider();
 
-            ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
-            IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
             CancellationTokenSource ts = new();
 
-            Task transportTask = miner
-                ? RunMiner(logger, peerFactory, args, ts.Token)
-                : RunClient(logger, peerFactory, args, ts.Token);
             Task consoleTask = consoleInterface.StartAsync(ts.Token);
+            Task transportTask = RunTransport(serviceProvider, consoleInterface, args, ts.Token);
 
             await Task.WhenAny(transportTask, consoleTask);
         }
 
-        public static async Task RunMiner(
-            ILogger logger,
-            IPeerFactory peerFactory,
+        public static async Task RunTransport(
+            ServiceProvider serviceProvider,
+            ConsoleInterface consoleInterface,
             string[] args,
             CancellationToken cancellationToken = default)
         {
-            logger.LogInformation("Running as a miner");
+            ILogger logger = serviceProvider.GetService<ILoggerFactory>()!.CreateLogger("Chat");
+            IPeerFactory peerFactory = serviceProvider.GetService<IPeerFactory>()!;
 
-            Identity optionalFixedIdentity = new(Enumerable.Repeat((byte)42, 32).ToArray());
-            ILocalPeer peer = peerFactory.Create(optionalFixedIdentity);
+            /*string addrTemplate = "/ip4/127.0.0.1/tcp/{0}";
+            var addr = string.Format(
+                addrTemplate,
+                args.Length > 0 && args[0] == "-sp" ? args[1] : "0");*/
+            Identity localPeerIdentity = new();
+            string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
+            ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
 
-            string addrTemplate = "/ip4/127.0.0.1/tcp/{0}";
-            IListener listener = await peer.ListenAsync(
-                string.Format(addrTemplate, args.Length > 0 && args[0] == "-sp" ? args[1] : "0"),
-                cancellationToken);
+            PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
+            ITopic topic = router.GetTopic("blockchain:broadcast");
+            topic.OnMessage += bytes =>
+            {
+                int addressLength = BitConverter.ToInt32(bytes[..4]);
+                Multiaddress sender = Multiaddress.Decode(
+                    Encoding.UTF8.GetString(bytes[4..(4 + addressLength)]));
+                byte[] msg = bytes[(4 + addressLength)..];
+                logger.LogTrace("Received message {Message}", msg.Aggregate("", (s, b) => s + b));
+                _ = consoleInterface.ReceiveBroadcastMessage(sender, msg);
+            };
+
+            IListener listener = await peer.ListenAsync(addr, cancellationToken);
+
+            _ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: cancellationToken);
+            _ = router.RunAsync(peer, token: cancellationToken);
+
+            consoleInterface.MessageToBroadcast += (_, msg) =>
+            {
+                logger.LogTrace("Publish Message: {Message}", msg.Aggregate("", (s, b) => s + b));
+                // NOTE: Use ToString instead of ToBytes because it has bug
+                byte[] listenerAddress = Encoding.UTF8.GetBytes(listener.Address.ToString());
+                topic.Publish(BitConverter.GetBytes(listenerAddress.Length)
+                    .Concat(listenerAddress)
+                    .Concat(msg).ToArray());
+            };
+
             using (StreamWriter outputFile = new StreamWriter(ListenerAddressFileName, false))
             {
                 outputFile.WriteLine(listener.Address.ToString());

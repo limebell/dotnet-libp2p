@@ -45,9 +45,9 @@ namespace Blockchain.Protocols
             {
                 ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
                 Console.ForegroundColor = protocolConsoleColor;
-                Console.WriteLine($"Reaceived a message of length {read.Length} from {context.RemotePeer.Address}");
+                Console.WriteLine($"Received a message of length {read.Length} from {context.RemotePeer.Address}");
                 Console.ForegroundColor = defaultConsoleColor;
-                await _consoleInterface.ReceiveBroadcastMessage(read.ToArray(), context);
+                await _consoleInterface.ReceiveBroadcastMessage(context.RemotePeer.Address, read.ToArray());
             }
         }
 
