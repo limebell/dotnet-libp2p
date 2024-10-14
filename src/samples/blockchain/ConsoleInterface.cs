@@ -40,6 +40,7 @@ namespace Blockchain
                 {
                     Transaction transaction = new Transaction(Guid.NewGuid().ToString());
                     Console.WriteLine($"Created transaction: {transaction}");
+                    _memPool.Add(transaction);
                     byte[] bytes = Codec.Encode(transaction);
                     MessageToBroadcast?.Invoke(this, bytes);
                 }
@@ -79,6 +80,7 @@ namespace Blockchain
                 if (block.Index == _chain.Blocks.Count)
                 {
                     _chain.Append(block);
+                    _memPool.Remove(block.Transactions.Select(tx => tx.Id));
                     Console.WriteLine($"Appended block to current chain.");
                 }
                 else

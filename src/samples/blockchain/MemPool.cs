@@ -18,5 +18,13 @@ namespace Blockchain
             _transactions.Clear();
             return dump;
         }
+
+        public void Remove(IEnumerable<string> ids)
+        {
+            foreach (var id in ids)
+            {
+                _transactions.Remove(id);
+            }
+        }
     }
 }
