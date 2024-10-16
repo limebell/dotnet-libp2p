@@ -34,10 +34,7 @@ namespace Blockchain
 
             CancellationTokenSource ts = new();
 
-            Task consoleTask = consoleInterface.StartAsync(ts.Token);
-            Task transportTask = RunTransport(serviceProvider, consoleInterface, args, ts.Token);
-
-            await Task.WhenAny(transportTask, consoleTask);
+            await RunTransport(serviceProvider, consoleInterface, args, ts.Token);
         }
 
         public static async Task RunTransport(
@@ -56,6 +53,7 @@ namespace Blockchain
             Identity localPeerIdentity = new();
             string addr = $"/ip4/0.0.0.0/tcp/0/p2p/{localPeerIdentity.PeerId}";
             ILocalPeer peer = peerFactory.Create(localPeerIdentity, Multiaddress.Decode(addr));
+            Task consoleTask = consoleInterface.StartAsync(peer, cancellationToken);
 
             PubsubRouter router = serviceProvider.GetService<PubsubRouter>()!;
             ITopic topic = router.GetTopic("blockchain:broadcast");
@@ -70,6 +68,7 @@ namespace Blockchain
             };
 
             IListener listener = await peer.ListenAsync(addr, cancellationToken);
+            Multiaddress listenerAddress = listener.Address;
 
             _ = serviceProvider.GetService<MDnsDiscoveryProtocol>()!.DiscoverAsync(peer.Address, token: cancellationToken);
             _ = router.RunAsync(peer, token: cancellationToken);
@@ -78,17 +77,17 @@ namespace Blockchain
             {
                 logger.LogTrace("Publish Message: {Message}", msg.Aggregate("", (s, b) => s + b));
                 // NOTE: Use ToString instead of ToBytes because it has bug
-                byte[] listenerAddress = Encoding.UTF8.GetBytes(listener.Address.ToString());
-                topic.Publish(BitConverter.GetBytes(listenerAddress.Length)
-                    .Concat(listenerAddress)
+                byte[] listenerAddressBytes = Encoding.UTF8.GetBytes(listenerAddress.ToString());
+                topic.Publish(BitConverter.GetBytes(listenerAddressBytes.Length)
+                    .Concat(listenerAddressBytes)
                     .Concat(msg).ToArray());
             };
 
             using (StreamWriter outputFile = new StreamWriter(ListenerAddressFileName, false))
             {
-                outputFile.WriteLine(listener.Address.ToString());
+                outputFile.WriteLine(listenerAddress.ToString());
             }
-            logger.LogInformation("Listener started at {address}", listener.Address);
+            logger.LogInformation("Listener started at {address}", listenerAddress);
 
             listener.OnConnection += remotePeer =>
             {
@@ -116,7 +115,7 @@ namespace Blockchain
             {
                 remoteAddr = inputFile.ReadLine();
             }
-            logger.LogInformation("Dialing {remote}", remoteAddr);
+            logger.LogTrace("Dialing {remote}", remoteAddr);
             IRemotePeer remotePeer = await localPeer.DialAsync(remoteAddr, cancellationToken);
 
             await remotePeer.DialAsync<HandshakeProtocol>(cancellationToken);

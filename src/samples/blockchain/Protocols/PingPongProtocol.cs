@@ -1,64 +1,48 @@
 using System.Buffers;
+using Microsoft.Extensions.Logging;
 using Nethermind.Libp2p.Core;
 
 namespace Blockchain.Protocols
 {
-    internal class PingPongProtocol : SymmetricProtocol, IProtocol
+    internal class PingPongProtocol(ConsoleInterface consoleInterface) : IProtocol
     {
-        private readonly ConsoleColor protocolConsoleColor = ConsoleColor.DarkGreen;
-        private readonly ConsoleColor defaultConsoleColor = Console.ForegroundColor;
-        private readonly ConsoleInterface _consoleInterface;
-
-        public string Id => "/ping-pong/1.0.0";
-
-        public PingPongProtocol(ConsoleInterface consoleInterface)
+        public string Id => "/blockchain/ping-pong/1.0.0";
+        public async Task DialAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
         {
-            _consoleInterface = consoleInterface;
-        }
+            TimeSpan elapsed = TimeSpan.Zero;
 
-        protected override async Task ConnectAsync(
-            IChannel channel,
-            IChannelFactory? channelFactory,
-            IPeerContext context,
-            bool isListener)
-        {
-            _consoleInterface.SetToSendMessageTask(
-                bytes => SendRequestMessage(bytes, channel, context));
-            Task receiveTask = ReceiveMessage(channel, context);
-            await Task.WhenAny(receiveTask);
-        }
-
-        private async Task SendRequestMessage(
-            byte[] bytes,
-            IChannel channel,
-            IPeerContext context)
-        {
-            await channel.WriteAsync(new ReadOnlySequence<byte>(bytes));
-            Console.ForegroundColor = protocolConsoleColor;
-            Console.WriteLine($"Sent a message of length {bytes.Length} to {context.RemotePeer.Address}");
-            Console.ForegroundColor = defaultConsoleColor;
-        }
-
-        private async Task ReceiveMessage(IChannel channel, IPeerContext context)
-        {
-            while(true)
+            // Keep connection for 5 seconds
+            while (elapsed < TimeSpan.FromSeconds(5))
             {
-                ReadOnlySequence<byte> read = await channel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
-                Console.ForegroundColor = protocolConsoleColor;
-                Console.WriteLine($"Received a message of length {read.Length} from {context.RemotePeer.Address}");
-                Console.ForegroundColor = defaultConsoleColor;
-                await _consoleInterface.ReceivePingPongMessage(
-                    read.ToArray(),
-                    bytes => SendReplyMessage(bytes, channel, context));
+                if (consoleInterface.TryGetMessageToSend(
+                        context.RemotePeer.Address,
+                        out byte[]? msg))
+                {
+                    if (msg is { } msgNotNull)
+                    {
+                        await downChannel.WriteAsync(new ReadOnlySequence<byte>(msgNotNull));
+                        ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
+                        consoleInterface.ReceivePingPongMessage(read.ToArray(), _ => { });
+                    }
+                    elapsed = TimeSpan.Zero;
+                }
+                else
+                {
+                    await Task.Delay(50);
+                    elapsed += TimeSpan.FromMilliseconds(50);
+                }
             }
         }
 
-        private async Task SendReplyMessage(byte[] bytes, IChannel channel, IPeerContext context)
+        public async Task ListenAsync(IChannel downChannel, IChannelFactory? upChannelFactory, IPeerContext context)
         {
-            await channel.WriteAsync(new ReadOnlySequence<byte>(bytes));
-            Console.ForegroundColor = protocolConsoleColor;
-            Console.WriteLine($"Sent a message of length {bytes.Length} to {context.RemotePeer.Address}");
-            Console.ForegroundColor = defaultConsoleColor;
+            while (true)
+            {
+                ReadOnlySequence<byte> read = await downChannel.ReadAsync(0, ReadBlockingMode.WaitAny).OrThrow();
+                consoleInterface.ReceivePingPongMessage(
+                    read.ToArray(),
+                    msg => _ = downChannel.WriteAsync(new ReadOnlySequence<byte>(msg)));
+            }
         }
     }
 }
